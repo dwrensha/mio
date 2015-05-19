@@ -1,15 +1,17 @@
 # Getting Started
 
-This section will serve as a simple Mio tutorial. It will start from
-generating a new [Rust](http://www.rust-lang.org/) project using
-[Cargo](https://crates.io) up to writing a simple TCP echo server and
-client.
+This section will serve as an introductory Mio tutorial. It assumes that
+you have familiarity with the [Rust](http://www.rust-lang.org/)
+programming language and the [Cargo](https://crates.io) tool. It will
+start from generating a new [Rust](http://www.rust-lang.org/) project
+using [Cargo](https://crates.io) up to writing a simple TCP echo server
+and client.
 
 Of course, you will need Rust installed. If you haven't already, get it
 here: [rust-lang.org](https://www.rust-lang.org).
 
-> **Note:** As of the time of writing, Mio does not support windows.
-Windows support is currently in progress.
+> **Note:** As of the time of writing, Mio does not support Windows
+> (though support is currently in progress).
 
 ## Setting up the project
 
@@ -55,9 +57,9 @@ freshly generated Cargo project.
 
 ## Writing the Echo Server
 
-Let's start by writing a very simple server that accepts client
-connections and does nothing with them. The client connections will be
-accepted and shutdown immediately after.
+Let's start by writing a very simple server that accepts connections and
+does nothing with them. The connections will be accepted and shutdown
+immediately after.
 
 Here is the entire code, we'll step through it in a bit.
 
@@ -79,10 +81,10 @@ impl mio::Handler for Pong {
     fn readable(&mut self, event_loop: &mut mio::EventLoop<Pong>, token: mio::Token, hint: mio::ReadHint) {
         match token {
             SERVER => {
-                println!("the server socket is ready to accept a client");
+                println!("the server socket is ready to accept a connection");
                 match self.server.accept() {
-                    Ok(Some(client)) => {
-                        println!("accepted a client socket, exiting program");
+                    Ok(Some(connection)) => {
+                        println!("accepted a socket, exiting program");
                         event_loop.shutdown();
                     }
                     Ok(None) => {
@@ -139,7 +141,7 @@ In our `main` function, we create the `EventLoop` value and start it by
 calling `event_loop.run` passing a mutable reference to our handler. The
 `run` function will block until the event loop is shutdown.
 
-However, before the event loop is started, it must be setup to do some
+However, before the event loop is started, it must be set up to do some
 work. In this case, the pingpong server socket is registered with the
 event loop. The constant `SERVER` token is used when registering the
 socket. Whenever a connection is ready to be aceepted, the event loop
@@ -161,6 +163,82 @@ to manage: the `server` socket, so all we do is assert that the given
 `Token` matches `SERVER`. However, when there are many sockets, things
 get more involved. We will cover handling more than one sockets later in
 the guide.
+
+Here is the `readable` signature:
+
+```
+fn readable(&mut self, event_loop: &mut mio::EventLoop<Pong>, token: mio::Token, hint: mio::ReadHint) {
+  // ...
+}
+```
+
+For every call into the handler, the event loop will pass a reference to
+itself. This allows us to register additional sockets. It also passes in
+the `Token` that was associated with the socket during the `register`
+call.
+
+The last argument, [`hint:
+ReadHint`](http://rustdoc.s3-website-us-east-1.amazonaws.com/mio/master/mio/struct.ReadHint.html)
+sometimes provides the a hint as to what will happen when the read is
+performed. For example, if the socket experienced an error, a read on
+the socket will fail. In this case, the `ReadHint` argument will be set
+to `ReadHint::error()`. However, this is not a guarantee. Even if
+`ReadHint` is set to `ReadHint::data()`, the read may fail.
+
+Now let's look at the body:
+
+
+```
+fn readable(&mut self, event_loop: &mut mio::EventLoop<Pong>, token: mio::Token, hint: mio::ReadHint) {
+    match token {
+        SERVER => {
+            println!("the server socket is ready to accept a connection");
+            match self.server.accept() {
+                Ok(Some(connection)) => {
+                    println!("accepted a socket, exiting program");
+                    event_loop.shutdown();
+                }
+                Ok(None) => {
+                    println!("the server socket wasn't actually ready");
+                }
+                Err(e) => {
+                    println!("listener.accept() errored: {}", e);
+                    event_loop.shutdown();
+                }
+            }
+        }
+        _ => panic!("Received unknown token"),
+    }
+}
+```
+
+Since we only ever registered one socket with the event loop, the
+`readable` handler will only ever be called with the `SERVER` token.
+Then, we try to accept a connection. It's important to note that the
+event loop will never operate on any sockets. It only watches sockets
+for changes in state.
+
+The signature for the `TcpListener::accept()` function is as follows:
+
+```no_run
+fn accept(&self) -> io::Result<Option<TcpStream>>;
+```
+
+All non-blocking socket types follow a similar pattern of returning
+`io::Result<Option<T>>`. An operation on a non-blocking socket can
+obviously flat out fail and return an error. However, the socket can
+also be in a good state, but not be ready to operate on. If it were a
+blocking socket, the operation would block. Instead, it returns
+immediately with Ok(None), in which case we must wait for the event loop
+to notify us again that the socket is readable.
+
+Even if we just received a readable notification, there is no guarantee
+that a read from the socket will succeed and not return `Ok(None)`, so
+we must handle that case as well.
+
+If a connection was successfully accepted, we just print some output and
+shutdown the event loop. The `event_loop.run(...)` call will return and
+the program will exit.
 
 ### Tokens
 
