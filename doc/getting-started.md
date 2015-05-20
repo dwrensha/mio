@@ -187,7 +187,6 @@ to `ReadHint::error()`. However, this is not a guarantee. Even if
 
 Now let's look at the body:
 
-
 ```
 fn readable(&mut self, event_loop: &mut mio::EventLoop<Pong>, token: mio::Token, hint: mio::ReadHint) {
     match token {
@@ -239,6 +238,13 @@ we must handle that case as well.
 If a connection was successfully accepted, we just print some output and
 shutdown the event loop. The `event_loop.run(...)` call will return and
 the program will exit.
+
+### Handling connections
+
+Our echo server will be pretty simple. It will receive data off of the
+connection, buffer it until it sees a newline, and then return the data
+to the client. We'll set a max line length to 256 characters, and if we
+receive more than that, we will close the client connection.
 
 ### Tokens
 
