@@ -8,23 +8,19 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Selector {
-    kq: RawFd,
-    changes: Events
+    kq: RawFd
 }
 
 impl Selector {
     pub fn new() -> io::Result<Selector> {
         Ok(Selector {
-            kq: try!(kqueue().map_err(super::from_nix_error)),
-            changes: Events::new()
+            kq: try!(kqueue().map_err(super::from_nix_error))
         })
     }
 
     pub fn select(&mut self, evts: &mut Events, timeout_ms: usize) -> io::Result<()> {
-        let cnt = try!(kevent(self.kq, self.changes.as_slice(), evts.as_mut_slice(), timeout_ms)
+        let cnt = try!(kevent(self.kq, &[], evts.as_mut_slice(), timeout_ms)
                                   .map_err(super::from_nix_error));
-
-        self.changes.sys_events.clear();
 
         unsafe {
             evts.sys_events.set_len(cnt);
@@ -78,29 +74,15 @@ impl Selector {
     }
 
     fn ev_push(&mut self, fd: RawFd, token: usize, filter: EventFilter, flags: EventFlag) -> io::Result<()> {
-        try!(self.maybe_flush_changes());
-
-        self.changes.sys_events.push(
-            KEvent {
-                ident: fd as ::libc::uintptr_t,
-                filter: filter,
-                flags: flags,
-                fflags: FilterFlag::empty(),
-                data: 0,
-                udata: token
-            });
-
-        Ok(())
-    }
-
-    fn maybe_flush_changes(&mut self) -> io::Result<()> {
-        if self.changes.is_full() {
-            try!(kevent(self.kq, self.changes.as_slice(), &mut [], 0)
-                    .map_err(super::from_nix_error));
-
-            self.changes.sys_events.clear();
-        }
-
+        let event = KEvent {
+            ident: fd as ::libc::uintptr_t,
+            filter: filter,
+            flags: flags,
+            fflags: FilterFlag::empty(),
+            data: 0,
+            udata: token
+        };
+        try!(kevent(self.kq, &[event], &mut [], 0).map_err(super::from_nix_error));
         Ok(())
     }
 }
@@ -161,18 +143,6 @@ impl Events {
                     self.events[idx].kind.insert(EventSet::error());
                 }
             }
-        }
-    }
-
-    #[inline]
-    fn is_full(&self) -> bool {
-        self.sys_events.len() == self.sys_events.capacity()
-    }
-
-    fn as_slice(&self) -> &[KEvent] {
-        unsafe {
-            let ptr = (&self.sys_events[..]).as_ptr();
-            slice::from_raw_parts(ptr, self.sys_events.len())
         }
     }
 
